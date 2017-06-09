@@ -1,0 +1,20 @@
+name = Entity Form Custom Behaviours
+description = This module houses the custom behaviours needed to work with entityform and other entities. Proper site setup is required and this is not re-distributable. 
+core = 7.x
+
+dependencies[] = entityreference
+dependencies[] = entityform
+dependencies[] = ctools
+dependencies[] = date
+
+scripts[] = js/entityform_custom_behaviours.js
+
+stylesheets[all][] = css/entityform_custom_behaviours.css
+
+configure = admin/config/entityform-custom-settings
+
+; Information added by packaging script on 2016-09-18
+version = "7.x-1.0"
+core = "7.x"
+project = "entityform_custom_behaviours"
+datestamp = "1386094705"

@@ -1,0 +1,338 @@
+<?php
+
+/**
+ * Implements hook_ctools_plugin_type().
+ */
+function entityform_custom_behaviours_admin() {
+	
+//--> BACKEND CONFIGURATION Form
+
+  $form = array();
+   
+  $version = 'v1.6';
+  $markup = '<h2>Custom Behaviours for EntityForms -'.$version.'</h2>';
+  $markup .= '<div class="info-cont"><p>This module hooks into a content type of your choosing and displays an entity form of your choosing.';
+  $markup .= 'You can add a boolean checkbox to this content type and choose whether or not to run this code on a particular node.</p>';
+  $markup .= '<p>You can also choose for more than one entity form to use this module by checking the appropriate setting on the entity form during creation.</p>';
+  $markup .= '<strong>Make sure all of the information below is correct before saving this configuration for the first time</strong></div>';
+  
+  $form['efcb_version'] = array(
+    '#markup' => $markup,
+    '#weight' => -100,
+  );
+   
+   $form['efcb_contenttype'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Event Content Type'),
+    '#default_value' => variable_get('efcb_contenttype', 'event'),
+    '#size' => 60,
+    '#maxlength' => 60,
+    '#description' => t("The machine name of the content type to react on"),
+    '#required' => TRUE,
+  );
+
+  
+  $form['efcb_datefield'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Field Name for Date'),
+    '#default_value' => variable_get('efcb_datefield', 'field_date'),
+    '#size' => 60,
+    '#maxlength' => 60,
+    '#description' => t("The machine name of the date field used on the content type. This field will be used to determine the 'open' or 'closed' status. "),
+    '#required' => TRUE,
+  );
+  
+  $form['efcb_linkdisplay'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Link text'),
+    '#default_value' => variable_get('efcb_linkdisplay', 'Click here to leave a comment'),
+    '#size' => 60,
+    '#maxlength' => 200,
+    '#description' => t("The link to an entity form that will display on an event node"),
+    '#required' => TRUE,
+  );
+  
+  
+  $form['efcb_entityform'] = array(
+    '#type' => 'textfield',
+    '#title' => t('EntityForm Name'),
+    '#default_value' => variable_get('efcb_entityform', 'form_default'),
+    '#size' => 60,
+    '#maxlength' => 60,
+    '#description' => t("The machine name of the default EntityForm you want to use for commenting. This can be changed on individual nodes."),
+    '#required' => TRUE,
+  );
+  //eform/submit/form-default
+  $form['efcb_entity_noderef'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Entity Reference Field Name'),
+    '#default_value' => variable_get('efcb_entity_noderef', 'field_event_reference'),
+    '#size' => 60,
+    '#maxlength' => 60,
+    '#description' => t("The machine name of the entity reference field on the entityform that references the content type"),
+    '#required' => TRUE,
+  );
+  
+  $form['#submit'][] = 'entityform_custom_behaviours_admin_submit';
+  return system_settings_form($form);
+}
+
+/**
+ * Implements submit handler
+ */
+function entityform_custom_behaviours_admin_submit($form, &$form_state) {
+
+//--> BACKEND CONFIGURATION FORM SUBMIT HANDLER
+	
+//create a field and attach it to the event content type
+//this field will be used for referencing an entityform to the node
+$eform = variable_get('efcb_entityform', 'form_default');
+if (!field_info_field('efcb_attach_form')) {
+		$ctype = $form_state['values']['efcb_contenttype'];
+		$field = array(
+			'field_name' => 'efcb_attach_form',
+			'type' => 'text',
+		);
+	  
+		field_create_field($field);
+		
+		$instance = array(
+			'field_name' => $field['field_name'],
+			'entity_type' => 'node',
+			'bundle' => $ctype,
+			'label' => 'Attach an Entity Form',
+			'description' => 'leave blank to disable entityform comments',
+			'default_value' => array(
+					array('value' => $eform),
+				),
+			'widget' => array(
+				'type' => 'text',
+				'settings' => array(
+					'size' => 20,
+				),
+			),
+		);
+	  $instance['display']['default']['type'] = 'hidden';
+	  field_create_instance($instance);
+	 
+	}
+}
+
+/**
+ * Implements hook_menu().
+ */
+function entityform_custom_behaviours_menu() {
+
+  $items = array();
+
+  $items['admin/config/entityform-custom-settings'] = array(
+    'title' => 'EntityForm custom behaviours settings',
+    'description' => 'Link text and any other settings will be located here',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('entityform_custom_behaviours_admin'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );	
+
+  return $items; 
+}
+
+
+/**
+ * Implements hook_node_view().
+ */
+function entityform_custom_behaviours_node_view($node, $view_mode, $langcode) {
+
+	$ctype = variable_get('efcb_contenttype', 'event');
+	
+	switch ($node->type) {
+		case $ctype:
+			
+			//get variables
+			$linktext = variable_get('efcb_linkdisplay', 'Click here to leave a comment');
+			$nid = $node->nid;
+			$datename = variable_get('efcb_datefield', 'field_date');		
+
+			//if efcb_attach_form is empty then don't run the code
+			if (isset($node->efcb_attach_form['und'][0]['value']) && !empty($node->efcb_attach_form['und'][0]['value'])) {
+				
+				$form_name = $node->efcb_attach_form['und'][0]['value'];
+				$strlink = '/eform/submit/'.$form_name."?event=".$nid;
+				
+				//get date and add fields
+				if (isset($node->content[$datename])) {
+					$dtfrom = date_create($node->content[$datename]['#items'][0]['value']);
+					$dtto = date_create($node->content[$datename]['#items'][0]['value2']);
+					$dtfrom = date_format($dtfrom, 'm/d/Y');
+					$dtto = date_format($dtto, 'm/d/Y');
+					$tt = date("m/d/Y");
+					//times were removed
+					
+				 //-->if past the date
+					if ($tt > $dtto) {
+						
+						$additional_field = '<div class="entityform-link closed"><span><a href="'.$strlink.'">'.$linktext.'</a></span></div>';
+						$node->content['comment_link'] = array(
+							'#markup' => $additional_field,
+							'#weight' => 10,
+						);
+						
+						//if its past the closing date then display message its closed
+						$node->content['comment_closes'] = array(
+							'#markup' => '<div class="comment-closes closed">Sorry, the commenting period has closed</div>',
+							'#weight' => 11,
+						);
+				 //-->if before the starting date
+					} elseif ($tt < $dtfrom){
+						
+						$additional_field = '<div class="entityform-link closed"><span><a href="'.$strlink.'">'.$linktext.'</a></span></div>';
+						$node->content['comment_link'] = array(
+							'#markup' => $additional_field,
+							'#weight' => 10,
+						);
+						
+						//if its past the closing date then display message its closed
+						$node->content['comment_closes'] = array(
+							'#markup' => '<div class="comment-closes closed">Sorry, the commenting period has not started yet</div>',
+							'#weight' => 11,
+						);
+						
+				 //-->if date is valid and open
+					} else {
+						//if the date is open display a link and text
+						$additional_field = '<div class="entityform-link open"><span><a href="'.$strlink.'">'.$linktext.'</a></span></div>';
+						$node->content['comment_link'] = array(
+							'#markup' => $additional_field,
+							'#weight' => 10,
+						);
+						$node->content['comment_closes'] = array(
+							'#markup' => '<div class="comment-closes">The comment period closes on '.$dtto.'</div>',
+							'#weight' => 11,
+						);
+					}
+				}
+			}
+
+		break;	
+	}
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function entityform_custom_behaviours_form_alter(&$form, &$form_state, $form_id) {
+
+//GET SETTINGS VARIABLES
+	$eform = variable_get('efcb_entityform', 'form_default');
+	$eformadmin = $eform.'_type_form';
+	$eformid = $eform.'_entityform_edit_form';
+	$ctype = variable_get('efcb_contenttype', 'event');
+	$ctype_form = $ctype . '_node_form';
+	$nid_to_reference = $_GET[$ctype];
+	$datename = variable_get('efcb_datefield', 'field_date');
+	$fname = variable_get('efcb_entity_noderef', 'field_event_reference');
+	$showcomments = variable_get('efcb_contenttype_boolean', '');
+	
+	// we cant limit this to a particular form because many forms may do this. Just check to see if the GET parameter is in the URL
+	if (isset($_GET[$ctype])) {
+		if (isset($form[$fname])) { //check to see if the entity_reference field is there
+			drupal_set_title($title = "", $output = CHECK_PLAIN);
+			$ntr = node_load($nid_to_reference); //set the default the value of the entity reference field if its there
+			$ntr_date = $ntr->$datename;
+			$ntr_date2 = $ntr_date['und'][0]['value2'];
+			$ntr_date1 = $ntr_date['und'][0]['value'];
+			$form[$fname]['und'][0]['target_id']['#default_value'] = $ntr->title.' ('.$ntr->nid.')';
+			$alias = drupal_get_path_alias('node/'.$ntr->nid);
+			$form['#prefix'] = '<div class="node-ref-title"><a href="/'.$alias.'">'.$ntr->title.'</a></div>';
+			
+			$dtfrom = date_create($ntr_date1);	//beginning date
+			$dtto = date_create($ntr_date2); 	//ending date
+			$tt = new DateTime(); 				//todays date
+			//remove times - only compare date values
+			$dtfrom = $dtfrom->format('Y-m-d');
+			$dtto = $dtto->format('Y-m-d');
+			$tt = $tt->format('Y-m-d');
+		
+			//check dates of node reference
+			if ($tt > $dtto) { 
+				drupal_set_message(t('Sorry, the commenting period for this event has ended'), 'status');
+				$form['#prefix'] .= '<div class="disable-form">';
+				$form['#suffix'] = '</div>';
+			} elseif ($tt < $dtfrom) {
+				drupal_set_message(t('Sorry, the commenting period has not begun yet'), 'status');
+				$form['#prefix'] .= '<div class="disable-form">';
+				$form['#suffix'] = '</div>';
+			} else {
+				//date is valid between the to and from dates
+			}
+		} elseif (isset($form['review']['entityform']['']['field_event_reference'])) {
+			//This runs if you are on the review submission page. Do nothing.
+		} else {
+			//was displaying an error, but now that this can run multiple times for many forms, just do nothing if the entity reference field is not found
+		}
+	}
+
+	switch ($form_id) {
+		 case 'entityform_type_form':
+				//EntityForm Edit Pages
+				//Add a checkbox to all EntityForm edit pages to enable or disable this module code
+				 $type = $form['#entityform_type'];
+				   $form['efcb_display_setting'] = array(
+					 '#type' => 'fieldset',
+					 '#title' => t('EFCB Settings'),
+					 '#collapsible' => TRUE,
+					 '#collapsed' => TRUE,
+					 '#group' => 'additional_settings',
+				   );
+				 $form['efcb_display_setting']['enable_efcb_setting'] = array(
+					  '#type' => 'checkbox',
+					  '#title' => t('Enable EntityForm Custom Behaviours'),
+					  '#default_value' => variable_get('enable_efcb_setting_' . $type->type, 0),
+					  '#weight' => 3,
+				  );
+				  
+				 $form['#submit'][] = 'entityform_custom_behaviours_form_node_type_form_submit';
+		 break;
+		 
+		 case 'entityform_type_overview_form':
+			//EntityForm Overview Page
+			//Add the new Clone button. Corresponds with jquery
+			$form['table']['#header'][5] = 'Clone EFCB';
+			foreach ($form['table']['#rows'] as $key => $row) {
+				$dname = $row[0]['data']['#name'];
+				$form['table']['#rows'][$key][] = '<a href="/admin/structure/entityform_types/manage/' . $dname. '/clone?efcb=1">Clone EFCB</a>';
+			}
+		
+		 break;
+		
+		 case $ctype_form:
+			//i.e. the event content type form
+			//list entity forms
+			$entlist = entity_get_info('entityform');
+			$bundles = array();
+			$bundles = $entlist['bundles'];
+			$marky0 = '<a id="efcb-see-forms">See available EntityForms here</a>';
+			$marky = '<div id="efcb-avail-forms" style="display:none;"><ul class="efcb-avil-list">';
+			//if efcb is enabled then list the entityform as being available to use.
+			foreach ($bundles as $bnd => $frmlabel) {
+				$chk = variable_get('enable_efcb_setting_' . $bnd,0);
+				if ($chk == 1){
+					$marky .= '<li><a class="efcb-sniffer" id="'.$bnd.'">'.$frmlabel['label'].'</a></li>';
+				}
+			}
+			$marky .= '</ul></div>';
+			$form['efcb_attach_form']['#suffix']=$marky0 . $marky;
+					
+		 break;
+	}
+}
+
+/**
+ * Implements submit handler
+ */
+function entityform_custom_behaviours_form_node_type_form_submit(&$form, &$form_state) {
+	//store enabled value
+	$type=$form_state['build_info']['args'][0]->type;
+	variable_set('enable_efcb_setting_' . $type,$form_state['values']['enable_efcb_setting']);
+	
+}
